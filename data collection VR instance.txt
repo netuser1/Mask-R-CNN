@@ -1,0 +1,107 @@
+import os
+import sys
+import random
+import math
+import re
+import time
+import numpy as np
+import tensorflow as tf
+import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import pandas as pd
+
+# Root directory of the project
+ROOT_DIR = os.path.abspath("../")
+
+# Import Mask RCNN
+sys.path.append(ROOT_DIR)  # To find local version of the library
+from mrcnn import utils
+from mrcnn import visualize
+from mrcnn.visualize import display_images
+import mrcnn.model as modellib
+from mrcnn.model import log
+
+from samples.boat import boat
+
+from PIL import Image
+
+# Directory to save logs and trained model
+MODEL_DIR = os.path.join(ROOT_DIR, "logs")
+
+config = boat.BoatConfig()
+BALLOON_DIR = os.path.join(ROOT_DIR, "datasets/boat")
+
+# Override the training configurations with a few
+# changes for inferencing.
+class InferenceConfig(config.__class__):
+    # Run detection on one image at a time
+    GPU_COUNT = 1
+    IMAGES_PER_GPU = 1
+
+config = InferenceConfig()
+
+# Device to load the neural network on.
+DEVICE = "/gpu:0"  # /cpu:0 or /gpu:0
+
+# Inspect the model in training or inference modes
+# values: 'inference' or 'training'
+# TODO: code for 'training' test mode not ready yet
+TEST_MODE = "inference"
+
+# Create model in inference mode
+with tf.device(DEVICE):
+    model = modellib.MaskRCNN(mode="inference", model_dir=MODEL_DIR,
+                              config=config)
+
+# Set path to boat weights file
+weights_path = "/home/timoteilala/Boat-Mask-R-CNN/logs/boat20181120T1148/mask_rcnn_boat_0030.h5"
+
+# Load weights
+print("Loading weights ", weights_path)
+model.load_weights(weights_path, by_name=True)
+
+import csv
+def rle_encode(img):
+    '''
+    img: numpy array, 1 - mask, 0 - background
+    Returns run length as string formated
+    '''
+    pixels = img.flatten()
+    pixels = np.concatenate([[0], pixels, [0]])
+    runs = np.where(pixels[1:] != pixels[:-1])[0] + 1
+    runs[1::2] -= runs[::2]
+    return ' '.join(str(x) for x in runs)
+
+
+file = '/home/timoteilala/Boat-Mask-R-CNN/sample_submission_v2.csv' #get the file of submission
+print(file)
+df = pd.read_csv(file) #citim fisierul .csv
+print(df['ImageId'][0])
+
+lista = [];
+
+for i in range(len(df['ImageId'])):
+    imagea = "/home/timoteilala/Boat-Mask-R-CNN/val/" + df['ImageId'][i]
+    print(i)
+    print(df['ImageId'][i])
+    image = np.asarray(Image.open(imagea, 'r'))	
+    print(" -> " + df['ImageId'][i])
+    results = model.detect([image], verbose=1)#facem feedforward prin retea cu imaginea de la pasul i
+    r = results[0]
+        
+    rle = ' ' #variabila care va stoca Run Length encoding pentru imaginea de la pasul i
+    nr_masti = r['rois'].shape[0] #luam numarul de masti generate de reteaua noastra
+    if nr_masti !=0:
+        masks = r['masks'] #iau toate mastile detectate de algoritmul meu 
+        for j in range(nr_masti):
+            mask = masks[:, :, j]#iau mastile pe rand
+            mask = mask*1 #transform din Bool in Int
+            rle = rle + ' ' + rle_encode(mask) #adaugam toti pixelii mastilor gasiti 
+    lista.append({'ImageId': df['ImageId'][i], 'EncodedPixels': rle}) #adaugam la lista finala 
+  
+pd_write = pd.DataFrame(lista)
+pd_write = pd_write[['ImageId', 'EncodedPixels']]
+pd_write.head()
+
+pd_write.to_csv('submission3.csv', index = False)
